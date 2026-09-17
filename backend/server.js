@@ -26,17 +26,41 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 
+// ===== ALLOWED ORIGINS =====
+// Comma-separated list in CORS_ORIGIN env var, e.g.
+//   CORS_ORIGIN=https://mika-bet-x8t2.vercel.app,http://localhost:3000
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+console.log('🌐 Allowed CORS origins:', allowedOrigins);
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (Postman, curl, mobile apps)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    console.warn('❌ CORS blocked origin:', origin);
+    return callback(new Error(`CORS blocked: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cookie', 'Accept'],
+  exposedHeaders: ['Set-Cookie'],
+  optionsSuccessStatus: 200, // some browsers send 204, this keeps things consistent
+};
+
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false, // 👈 important for cross-domain
 }));
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-}));
+app.use(cors(corsOptions));
+
+// Explicitly handle preflight for all routes (belt and braces)
+app.options('*', cors(corsOptions));
 
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
@@ -46,7 +70,7 @@ app.use(morgan('dev'));
 // ===== WEB SOCKET =====
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true,
   },
@@ -75,18 +99,10 @@ io.on('connection', (socket) => {
     try {
       const { matchId, amount, odds, selection, userId } = data;
       io.to(`match-${matchId}`).emit('bet-placed', {
-        matchId,
-        amount,
-        odds,
-        selection,
-        timestamp: new Date(),
+        matchId, amount, odds, selection, timestamp: new Date(),
       });
       io.to(`user-${userId}`).emit('bet-confirmed', {
-        success: true,
-        matchId,
-        amount,
-        odds,
-        selection,
+        success: true, matchId, amount, odds, selection,
       });
     } catch (error) {
       console.error('Live bet error:', error);
@@ -97,9 +113,7 @@ io.on('connection', (socket) => {
     try {
       const { matchId, updates } = data;
       io.to(`match-${matchId}`).emit('match-updated', {
-        matchId,
-        updates,
-        timestamp: new Date(),
+        matchId, updates, timestamp: new Date(),
       });
     } catch (error) {
       console.error('Match update error:', error);
@@ -123,7 +137,18 @@ app.get('/health', async (req, res) => {
     environment: process.env.NODE_ENV || 'development',
     database: dbStatus,
     websocket: 'active',
+    allowedOrigins,
     version: '1.0.0',
+  });
+});
+
+// ===== ROOT =====
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Mika-Bet Backend API',
+    version: '1.0.0',
+    health: '/health',
   });
 });
 
@@ -134,12 +159,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api', agentRoutes);
 
 // ===== MATCH ROUTES =====
-
 app.get('/api/matches/live', async (req, res) => {
   try {
-    const matches = await Match.find({
-      status: { $in: ['LIVE', 'HALFTIME'] },
-    }).sort({ kickoff: 1 });
+    const matches = await Match.find({ status: { $in: ['LIVE', 'HALFTIME'] } }).sort({ kickoff: 1 });
     res.json({ success: true, data: matches, count: matches.length });
   } catch (error) {
     console.error('Live matches error:', error);
@@ -169,70 +191,12 @@ app.get('/api/matches', async (req, res) => {
 
     if (matches.length === 0 && page === 1) {
       const seedMatches = [
-        {
-          league: 'UEFA Champions League',
-          homeTeam: 'Real Madrid',
-          awayTeam: 'Bayern Munich',
-          homeOdds: 2.15,
-          drawOdds: 3.40,
-          awayOdds: 3.20,
-          kickoff: new Date(Date.now() + 2 * 60 * 60 * 1000),
-          status: 'UPCOMING',
-          doubleChance: { '1X': 1.60, '12': 1.27, 'X2': 1.32 },
-          bothScore: { yes: 1.61, no: 2.17 },
-        },
-        {
-          league: 'USA-NBA',
-          homeTeam: 'Los Angeles Lakers',
-          awayTeam: 'Boston Celtics',
-          homeOdds: 1.85,
-          drawOdds: null,
-          awayOdds: 2.10,
-          kickoff: new Date(Date.now() + 30 * 60 * 1000),
-          status: 'LIVE',
-          homeScore: 68,
-          awayScore: 72,
-        },
-        {
-          league: 'Premier League',
-          homeTeam: 'Liverpool',
-          awayTeam: 'Manchester City',
-          homeOdds: 2.80,
-          drawOdds: 3.20,
-          awayOdds: 2.40,
-          kickoff: new Date(Date.now() + 4 * 60 * 60 * 1000),
-          status: 'UPCOMING',
-        },
-        {
-          league: 'La Liga',
-          homeTeam: 'Barcelona',
-          awayTeam: 'Atletico Madrid',
-          homeOdds: 1.95,
-          drawOdds: 3.10,
-          awayOdds: 3.80,
-          kickoff: new Date(Date.now() + 6 * 60 * 60 * 1000),
-          status: 'UPCOMING',
-        },
-        {
-          league: 'Serie A',
-          homeTeam: 'AC Milan',
-          awayTeam: 'Inter Milan',
-          homeOdds: 2.40,
-          drawOdds: 3.00,
-          awayOdds: 2.90,
-          kickoff: new Date(Date.now() + 8 * 60 * 60 * 1000),
-          status: 'UPCOMING',
-        },
-        {
-          league: 'Bundesliga',
-          homeTeam: 'Bayern Munich',
-          awayTeam: 'Borussia Dortmund',
-          homeOdds: 1.75,
-          drawOdds: 3.50,
-          awayOdds: 4.20,
-          kickoff: new Date(Date.now() + 10 * 60 * 60 * 1000),
-          status: 'UPCOMING',
-        },
+        { league: 'UEFA Champions League', homeTeam: 'Real Madrid', awayTeam: 'Bayern Munich', homeOdds: 2.15, drawOdds: 3.40, awayOdds: 3.20, kickoff: new Date(Date.now() + 2 * 60 * 60 * 1000), status: 'UPCOMING', doubleChance: { '1X': 1.60, '12': 1.27, 'X2': 1.32 }, bothScore: { yes: 1.61, no: 2.17 } },
+        { league: 'USA-NBA', homeTeam: 'Los Angeles Lakers', awayTeam: 'Boston Celtics', homeOdds: 1.85, drawOdds: null, awayOdds: 2.10, kickoff: new Date(Date.now() + 30 * 60 * 1000), status: 'LIVE', homeScore: 68, awayScore: 72 },
+        { league: 'Premier League', homeTeam: 'Liverpool', awayTeam: 'Manchester City', homeOdds: 2.80, drawOdds: 3.20, awayOdds: 2.40, kickoff: new Date(Date.now() + 4 * 60 * 60 * 1000), status: 'UPCOMING' },
+        { league: 'La Liga', homeTeam: 'Barcelona', awayTeam: 'Atletico Madrid', homeOdds: 1.95, drawOdds: 3.10, awayOdds: 3.80, kickoff: new Date(Date.now() + 6 * 60 * 60 * 1000), status: 'UPCOMING' },
+        { league: 'Serie A', homeTeam: 'AC Milan', awayTeam: 'Inter Milan', homeOdds: 2.40, drawOdds: 3.00, awayOdds: 2.90, kickoff: new Date(Date.now() + 8 * 60 * 60 * 1000), status: 'UPCOMING' },
+        { league: 'Bundesliga', homeTeam: 'Bayern Munich', awayTeam: 'Borussia Dortmund', homeOdds: 1.75, drawOdds: 3.50, awayOdds: 4.20, kickoff: new Date(Date.now() + 10 * 60 * 60 * 1000), status: 'UPCOMING' },
       ];
       await Match.insertMany(seedMatches);
       const newMatches = await Match.find(filter).sort({ kickoff: 1 });
@@ -257,7 +221,6 @@ app.get('/api/matches/:id', async (req, res) => {
 });
 
 // ===== BET ROUTES =====
-
 app.post('/api/bets', authenticateToken, async (req, res) => {
   try {
     const { matchId, amount, odds, selection, betSlipId } = req.body;
@@ -277,15 +240,8 @@ app.post('/api/bets', authenticateToken, async (req, res) => {
 
     const potentialWin = amount * odds;
     const bet = await Bet.create({
-      user: user._id,
-      match: matchId,
-      amount,
-      odds,
-      selection,
-      potentialWin,
-      status: 'PENDING',
-      betSlipId: betSlipId || null,
-      placedAt: new Date(),
+      user: user._id, match: matchId, amount, odds, selection, potentialWin,
+      status: 'PENDING', betSlipId: betSlipId || null, placedAt: new Date(),
     });
 
     const balanceBefore = user.balance;
@@ -293,11 +249,7 @@ app.post('/api/bets', authenticateToken, async (req, res) => {
     await User.findByIdAndUpdate(user._id, { balance: balanceAfter });
 
     await Transaction.create({
-      user: user._id,
-      type: 'BET',
-      amount: -amount,
-      balanceBefore,
-      balanceAfter,
+      user: user._id, type: 'BET', amount: -amount, balanceBefore, balanceAfter,
       reference: bet._id.toString(),
       description: `Bet on ${match.homeTeam} vs ${match.awayTeam} - ${selection}`,
       status: 'COMPLETED',
@@ -346,10 +298,7 @@ app.get('/api/bets/stats', authenticateToken, async (req, res) => {
     res.json({
       success: true,
       data: {
-        totalBets,
-        totalWon,
-        totalLost,
-        totalPending,
+        totalBets, totalWon, totalLost, totalPending,
         winAmount: winAmount[0]?.total || 0,
         totalStaked: totalStaked[0]?.total || 0,
         winRate: totalBets > 0 ? (totalWon / totalBets) * 100 : 0,
@@ -362,7 +311,6 @@ app.get('/api/bets/stats', authenticateToken, async (req, res) => {
 });
 
 // ===== WALLET ROUTES =====
-
 app.get('/api/wallet', authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('balance currency');
@@ -389,10 +337,8 @@ app.get('/api/wallet', authenticateToken, async (req, res) => {
   }
 });
 
-// ===== DEPOSIT - RESTRICTED FOR PLAYERS (Must use agent system) =====
 app.post('/api/wallet/deposit', authenticateToken, async (req, res) => {
   try {
-    // BLOCK PLAYERS FROM DIRECT DEPOSIT
     if (req.user.role === 'player') {
       return res.status(403).json({
         success: false,
@@ -400,7 +346,6 @@ app.post('/api/wallet/deposit', authenticateToken, async (req, res) => {
         code: 'AGENT_DEPOSIT_REQUIRED',
       });
     }
-
     const { amount, receiptNumber, paymentMethod = 'TeleBirr' } = req.body;
     const user = req.user;
     if (!amount || amount < 10) return res.status(400).json({ success: false, message: 'Minimum deposit is 10 ETB' });
@@ -409,14 +354,9 @@ app.post('/api/wallet/deposit', authenticateToken, async (req, res) => {
     const balanceAfter = user.balance + amount;
     await User.findByIdAndUpdate(user._id, { balance: balanceAfter });
     const transaction = await Transaction.create({
-      user: user._id,
-      type: 'DEPOSIT',
-      amount,
-      balanceBefore,
-      balanceAfter,
+      user: user._id, type: 'DEPOSIT', amount, balanceBefore, balanceAfter,
       reference: receiptNumber || `DEP-${Date.now()}`,
-      description: `Deposit via ${paymentMethod}`,
-      status: 'COMPLETED',
+      description: `Deposit via ${paymentMethod}`, status: 'COMPLETED',
     });
     req.user.balance = balanceAfter;
     user.logActivity('DEPOSIT', req, { amount, paymentMethod, receiptNumber });
@@ -431,7 +371,6 @@ app.post('/api/wallet/deposit', authenticateToken, async (req, res) => {
 
 app.post('/api/wallet/withdraw', authenticateToken, async (req, res) => {
   try {
-    // BLOCK PLAYERS FROM DIRECT WITHDRAWAL
     if (req.user.role === 'player') {
       return res.status(403).json({
         success: false,
@@ -439,7 +378,6 @@ app.post('/api/wallet/withdraw', authenticateToken, async (req, res) => {
         code: 'AGENT_WITHDRAWAL_REQUIRED',
       });
     }
-
     const { amount, phoneNumber, bankAccount } = req.body;
     const user = req.user;
     if (!amount || amount < 50) return res.status(400).json({ success: false, message: 'Minimum withdrawal is 50 ETB' });
@@ -449,11 +387,7 @@ app.post('/api/wallet/withdraw', authenticateToken, async (req, res) => {
     const balanceAfter = user.balance - amount;
     await User.findByIdAndUpdate(user._id, { balance: balanceAfter });
     const transaction = await Transaction.create({
-      user: user._id,
-      type: 'WITHDRAW',
-      amount: -amount,
-      balanceBefore,
-      balanceAfter,
+      user: user._id, type: 'WITHDRAW', amount: -amount, balanceBefore, balanceAfter,
       reference: `WTH-${Date.now()}`,
       description: `Withdrawal to ${phoneNumber ? `TeleBirr (${phoneNumber})` : `Bank Account (${bankAccount})`}`,
       status: 'PENDING',
@@ -469,7 +403,6 @@ app.post('/api/wallet/withdraw', authenticateToken, async (req, res) => {
 });
 
 // ===== AGENT ROUTES =====
-
 app.get('/api/agent/players', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'admin' && req.user.role !== 'agent') {
@@ -498,7 +431,6 @@ app.get('/api/agent/players/:id', authenticateToken, async (req, res) => {
 });
 
 // ===== ADMIN ROUTES =====
-
 app.post('/api/admin/matches', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
@@ -530,11 +462,7 @@ app.put('/api/admin/matches/:id', authenticateToken, async (req, res) => {
     const match = await Match.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     if (!match) return res.status(404).json({ success: false, message: 'Match not found' });
 
-    io.to(`match-${match._id}`).emit('match-updated', {
-      matchId: match._id,
-      updates: req.body,
-      timestamp: new Date(),
-    });
+    io.to(`match-${match._id}`).emit('match-updated', { matchId: match._id, updates: req.body, timestamp: new Date() });
 
     const admin = await User.findById(req.user._id);
     admin.logActivity('UPDATE_MATCH', req, { matchId: match._id, updates: req.body });
@@ -593,11 +521,7 @@ app.put('/api/admin/users/:id/status', authenticateToken, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied. Admin role required.' });
     }
     const { isActive, isBlocked, isVerified, role } = req.body;
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { isActive, isBlocked, isVerified, role },
-      { new: true }
-    ).select('-password -emailVerificationToken -resetPasswordToken -devices');
+    const user = await User.findByIdAndUpdate(req.params.id, { isActive, isBlocked, isVerified, role }, { new: true }).select('-password -emailVerificationToken -resetPasswordToken -devices');
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
     const admin = await User.findById(req.user._id);
     admin.logActivity('UPDATE_USER_STATUS', req, { userId: req.params.id, status: { isActive, isBlocked, isVerified, role } });
@@ -615,27 +539,15 @@ app.post('/api/admin/matches/:id/settle', authenticateToken, async (req, res) =>
     if (req.user.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Access denied. Admin role required.' });
     }
-
     const match = await Match.findById(req.params.id);
-    if (!match) {
-      return res.status(404).json({ success: false, message: 'Match not found' });
-    }
-
+    if (!match) return res.status(404).json({ success: false, message: 'Match not found' });
     if (match.status !== 'FINISHED') {
       return res.status(400).json({ success: false, message: 'Match must be FINISHED to settle bets' });
     }
 
-    const pendingBets = await Bet.find({
-      match: match._id,
-      status: 'PENDING'
-    }).populate('user');
-
+    const pendingBets = await Bet.find({ match: match._id, status: 'PENDING' }).populate('user');
     if (pendingBets.length === 0) {
-      return res.json({
-        success: true,
-        message: 'No pending bets to settle',
-        data: { settledCount: 0, totalWinnings: 0 }
-      });
+      return res.json({ success: true, message: 'No pending bets to settle', data: { settledCount: 0, totalWinnings: 0 } });
     }
 
     let settledCount = 0;
@@ -648,32 +560,15 @@ app.post('/api/admin/matches/:id/settle', authenticateToken, async (req, res) =>
       const awayScore = match.awayScore;
 
       switch (bet.selection) {
-        case '1':
-          isWin = homeScore > awayScore;
-          break;
-        case 'X':
-          isWin = homeScore === awayScore;
-          break;
-        case '2':
-          isWin = homeScore < awayScore;
-          break;
-        case '1X':
-          isWin = homeScore >= awayScore;
-          break;
-        case '12':
-          isWin = homeScore !== awayScore;
-          break;
-        case 'X2':
-          isWin = homeScore <= awayScore;
-          break;
-        case 'Yes':
-          isWin = homeScore > 0 && awayScore > 0;
-          break;
-        case 'No':
-          isWin = homeScore === 0 || awayScore === 0;
-          break;
-        default:
-          isWin = false;
+        case '1': isWin = homeScore > awayScore; break;
+        case 'X': isWin = homeScore === awayScore; break;
+        case '2': isWin = homeScore < awayScore; break;
+        case '1X': isWin = homeScore >= awayScore; break;
+        case '12': isWin = homeScore !== awayScore; break;
+        case 'X2': isWin = homeScore <= awayScore; break;
+        case 'Yes': isWin = homeScore > 0 && awayScore > 0; break;
+        case 'No': isWin = homeScore === 0 || awayScore === 0; break;
+        default: isWin = false;
       }
 
       bet.status = isWin ? 'WON' : 'LOST';
@@ -681,14 +576,7 @@ app.post('/api/admin/matches/:id/settle', authenticateToken, async (req, res) =>
       bet.settledBy = req.user._id;
       await bet.save();
 
-      results.push({
-        betId: bet._id,
-        user: bet.user.username,
-        selection: bet.selection,
-        isWin,
-        amount: bet.amount,
-        potentialWin: bet.potentialWin
-      });
+      results.push({ betId: bet._id, user: bet.user.username, selection: bet.selection, isWin, amount: bet.amount, potentialWin: bet.potentialWin });
 
       if (isWin) {
         const user = await User.findById(bet.user._id);
@@ -698,11 +586,7 @@ app.post('/api/admin/matches/:id/settle', authenticateToken, async (req, res) =>
         await user.save();
 
         await Transaction.create({
-          user: user._id,
-          type: 'WINNING',
-          amount: bet.potentialWin,
-          balanceBefore,
-          balanceAfter,
+          user: user._id, type: 'WINNING', amount: bet.potentialWin, balanceBefore, balanceAfter,
           reference: bet._id.toString(),
           description: `Bet won on ${match.homeTeam} vs ${match.awayTeam} - ${bet.selection}`,
           status: 'COMPLETED',
@@ -715,25 +599,13 @@ app.post('/api/admin/matches/:id/settle', authenticateToken, async (req, res) =>
       }
     }
 
-    io.to(`match-${match._id}`).emit('bets-settled', {
-      matchId: match._id,
-      settledCount,
-      totalWinnings,
-      results,
-      timestamp: new Date(),
-    });
+    io.to(`match-${match._id}`).emit('bets-settled', { matchId: match._id, settledCount, totalWinnings, results, timestamp: new Date() });
 
     res.json({
       success: true,
       message: `✅ ${settledCount} bets settled automatically!`,
-      data: {
-        settledCount,
-        totalWinnings,
-        results,
-        match: match.homeTeam + ' vs ' + match.awayTeam,
-      },
+      data: { settledCount, totalWinnings, results, match: match.homeTeam + ' vs ' + match.awayTeam },
     });
-
   } catch (error) {
     console.error('Auto-settle error:', error);
     res.status(500).json({ success: false, message: 'Failed to settle bets' });
@@ -746,10 +618,7 @@ app.get('/api/admin/bets', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Access denied. Admin role required.' });
     }
-    const bets = await Bet.find()
-      .populate('user', 'username email')
-      .populate('match', 'homeTeam awayTeam homeScore awayScore status')
-      .sort({ placedAt: -1 });
+    const bets = await Bet.find().populate('user', 'username email').populate('match', 'homeTeam awayTeam homeScore awayScore status').sort({ placedAt: -1 });
     res.json({ success: true, data: bets });
   } catch (error) {
     console.error('Error fetching bets:', error);
@@ -758,38 +627,25 @@ app.get('/api/admin/bets', authenticateToken, async (req, res) => {
 });
 
 // ===== ANALYTICS ROUTES =====
-
 app.get('/api/admin/analytics', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Access denied. Admin role required.' });
     }
-
     const { period = 'week' } = req.query;
-    
     const now = new Date();
     let startDate = new Date();
     switch(period) {
-      case 'week':
-        startDate.setDate(now.getDate() - 7);
-        break;
-      case 'month':
-        startDate.setMonth(now.getMonth() - 1);
-        break;
-      case 'year':
-        startDate.setFullYear(now.getFullYear() - 1);
-        break;
+      case 'week': startDate.setDate(now.getDate() - 7); break;
+      case 'month': startDate.setMonth(now.getMonth() - 1); break;
+      case 'year': startDate.setFullYear(now.getFullYear() - 1); break;
       case 'all':
-      default:
-        startDate = new Date('2000-01-01');
-        break;
+      default: startDate = new Date('2000-01-01'); break;
     }
 
     const totalUsers = await User.countDocuments({});
     const newUsers = await User.countDocuments({ createdAt: { $gte: startDate } });
-    const activeUsers = await User.countDocuments({ 
-      lastLogin: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) }
-    });
+    const activeUsers = await User.countDocuments({ lastLogin: { $gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) } });
 
     const totalBets = await Bet.countDocuments({});
     const pendingBets = await Bet.countDocuments({ status: 'PENDING' });
@@ -797,54 +653,26 @@ app.get('/api/admin/analytics', authenticateToken, async (req, res) => {
     const lostBets = await Bet.countDocuments({ status: 'LOST' });
     const periodBets = await Bet.countDocuments({ placedAt: { $gte: startDate } });
 
-    const deposits = await Transaction.aggregate([
-      { $match: { type: 'DEPOSIT', status: 'COMPLETED', createdAt: { $gte: startDate } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    const withdrawals = await Transaction.aggregate([
-      { $match: { type: 'WITHDRAW', status: 'COMPLETED', createdAt: { $gte: startDate } } },
-      { $group: { _id: null, total: { $sum: { $multiply: ['$amount', -1] } } } }
-    ]);
-    const winnings = await Transaction.aggregate([
-      { $match: { type: 'WINNING', status: 'COMPLETED', createdAt: { $gte: startDate } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
+    const deposits = await Transaction.aggregate([{ $match: { type: 'DEPOSIT', status: 'COMPLETED', createdAt: { $gte: startDate } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
+    const withdrawals = await Transaction.aggregate([{ $match: { type: 'WITHDRAW', status: 'COMPLETED', createdAt: { $gte: startDate } } }, { $group: { _id: null, total: { $sum: { $multiply: ['$amount', -1] } } } }]);
+    const winnings = await Transaction.aggregate([{ $match: { type: 'WINNING', status: 'COMPLETED', createdAt: { $gte: startDate } } }, { $group: { _id: null, total: { $sum: '$amount' } } }]);
 
     const totalDeposits = deposits[0]?.total || 0;
     const totalWithdrawals = Math.abs(withdrawals[0]?.total || 0);
     const totalWinnings = winnings[0]?.total || 0;
     const profit = totalDeposits - totalWithdrawals - totalWinnings;
 
-    const games = await Bet.aggregate([
-      { $match: { placedAt: { $gte: startDate } } },
-      { $group: { _id: '$selection', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 5 }
-    ]);
+    const games = await Bet.aggregate([{ $match: { placedAt: { $gte: startDate } } }, { $group: { _id: '$selection', count: { $sum: 1 } } }, { $sort: { count: -1 } }, { $limit: 5 }]);
 
-    const recentActivity = await Transaction.find({ createdAt: { $gte: startDate } })
-      .populate('user', 'username')
-      .sort({ createdAt: -1 })
-      .limit(20);
-
+    const recentActivity = await Transaction.find({ createdAt: { $gte: startDate } }).populate('user', 'username').sort({ createdAt: -1 }).limit(20);
     const formattedActivity = recentActivity.map(tx => ({
       type: tx.type.toLowerCase(),
       message: `${tx.user?.username || 'User'} ${tx.type.toLowerCase()} ${tx.amount > 0 ? 'deposited' : 'withdrew'} ${Math.abs(tx.amount)} ETB`,
       amount: tx.amount,
-      timestamp: tx.createdAt
+      timestamp: tx.createdAt,
     }));
 
-    const topUsers = await Bet.aggregate([
-      { $match: { status: 'WON', placedAt: { $gte: startDate } } },
-      { $group: { 
-        _id: '$user', 
-        totalWon: { $sum: '$potentialWin' },
-        bets: { $sum: 1 }
-      } },
-      { $sort: { totalWon: -1 } },
-      { $limit: 10 }
-    ]);
-
+    const topUsers = await Bet.aggregate([{ $match: { status: 'WON', placedAt: { $gte: startDate } } }, { $group: { _id: '$user', totalWon: { $sum: '$potentialWin' }, bets: { $sum: 1 } } }, { $sort: { totalWon: -1 } }, { $limit: 10 }]);
     const topUsersData = await Promise.all(topUsers.map(async (u) => {
       const user = await User.findById(u._id).select('username');
       const totalBetsCount = await Bet.countDocuments({ user: u._id });
@@ -853,7 +681,7 @@ app.get('/api/admin/analytics', authenticateToken, async (req, res) => {
         username: user?.username || 'Unknown',
         totalWon: u.totalWon,
         bets: u.bets,
-        winRate: totalBetsCount > 0 ? ((wonBetsCount / totalBetsCount) * 100).toFixed(1) : 0
+        winRate: totalBetsCount > 0 ? ((wonBetsCount / totalBetsCount) * 100).toFixed(1) : 0,
       };
     }));
 
@@ -863,12 +691,11 @@ app.get('/api/admin/analytics', authenticateToken, async (req, res) => {
         users: { total: totalUsers, new: newUsers, active: activeUsers },
         bets: { total: totalBets, pending: pendingBets, won: wonBets, lost: lostBets, period: periodBets },
         revenue: { total: totalDeposits, deposits: totalDeposits, withdrawals: totalWithdrawals, profit: profit },
-        games: { total: periodBets || 0, popular: games.map(g => ({ name: g._id, count: g.count })) }
+        games: { total: periodBets || 0, popular: games.map(g => ({ name: g._id, count: g.count })) },
       },
       recentActivity: formattedActivity,
-      topUsers: topUsersData
+      topUsers: topUsersData,
     });
-
   } catch (error) {
     console.error('Analytics error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch analytics' });
@@ -880,12 +707,7 @@ app.get('/api/admin/analytics/export', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Access denied. Admin role required.' });
     }
-
-    const bets = await Bet.find()
-      .populate('user', 'username email')
-      .populate('match', 'homeTeam awayTeam')
-      .sort({ placedAt: -1 });
-
+    const bets = await Bet.find().populate('user', 'username email').populate('match', 'homeTeam awayTeam').sort({ placedAt: -1 });
     let csv = 'Date,User,Match,Selection,Odds,Stake,Potential Win,Status\n';
     bets.forEach(bet => {
       csv += `${new Date(bet.placedAt).toISOString().split('T')[0]},`;
@@ -897,11 +719,9 @@ app.get('/api/admin/analytics/export', authenticateToken, async (req, res) => {
       csv += `${bet.potentialWin},`;
       csv += `${bet.status}\n`;
     });
-
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename=analytics-report-${new Date().toISOString().split('T')[0]}.csv`);
     res.send(csv);
-
   } catch (error) {
     console.error('Export error:', error);
     res.status(500).json({ success: false, message: 'Failed to export report' });
@@ -909,7 +729,6 @@ app.get('/api/admin/analytics/export', authenticateToken, async (req, res) => {
 });
 
 // ===== TRANSACTION ROUTES =====
-
 app.get('/api/transactions', authenticateToken, async (req, res) => {
   try {
     const { type, status, limit = 50, page = 1 } = req.query;
@@ -927,7 +746,6 @@ app.get('/api/transactions', authenticateToken, async (req, res) => {
 });
 
 // ===== BET SLIP ROUTES =====
-
 app.post('/api/betslip', authenticateToken, async (req, res) => {
   try {
     const { bets, totalOdds, totalStake, potentialWin } = req.body;
@@ -1005,6 +823,7 @@ connectDB().then(() => {
     console.log(`📊 Health check: http://localhost:${PORT}/health`);
     console.log(`🍃 MongoDB: Connected`);
     console.log(`🔌 WebSocket: Active on /socket.io`);
+    console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
     console.log(`${'='.repeat(50)}\n`);
   });
 }).catch((error) => {
