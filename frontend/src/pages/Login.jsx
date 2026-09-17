@@ -1,6 +1,6 @@
 ﻿import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/authContext';
+import { useAuth } from './context/AuthContext';
 import { FaEye, FaEyeSlash, FaUser, FaLock, FaGamepad } from 'react-icons/fa';
 
 const Login = () => {
