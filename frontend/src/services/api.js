@@ -1,15 +1,16 @@
-﻿import axios from 'axios';
+import axios from 'axios';
 import toast from 'react-hot-toast';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000',
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // 👈 needed for cookie-based sessions (harmless for JWT)
   timeout: 30000,
 });
 
-// Request interceptor
+// Request interceptor — attach JWT to every request
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -29,20 +30,21 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
-      
+
       try {
         const refreshToken = localStorage.getItem('refreshToken');
         if (!refreshToken) {
           throw new Error('No refresh token');
         }
 
-        const response = await axios.post('/api/auth/refresh-token', { refreshToken });
+        // 👈 use `api` instance, NOT raw axios — so it hits the backend
+        const response = await api.post('/api/auth/refresh-token', { refreshToken });
         const { token, refreshToken: newRefreshToken } = response.data.data;
-        
+
         localStorage.setItem('token', token);
         localStorage.setItem('refreshToken', newRefreshToken);
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        
+
         originalRequest.headers.Authorization = `Bearer ${token}`;
         return api(originalRequest);
       } catch (refreshError) {
@@ -57,7 +59,7 @@ api.interceptors.response.use(
 
     if (error.response) {
       const { status, data } = error.response;
-      
+
       if (status === 403) {
         if (data.code === 'EMAIL_NOT_VERIFIED') {
           toast.error('Please verify your email first');
