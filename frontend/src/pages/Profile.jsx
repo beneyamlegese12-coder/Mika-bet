@@ -1,6 +1,6 @@
 // frontend/src/pages/Profile.jsx
 import React from 'react';
-import { useAuth } from '../context/authContext';
+import { useAuth } from '../context/AuthContext';
 import { FaUser, FaEnvelope, FaPhone, FaWallet, FaCalendar } from 'react-icons/fa';
 
 const Profile = () => {
