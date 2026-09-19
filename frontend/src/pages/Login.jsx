@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { FaEye, FaEyeSlash, FaUser, FaLock, FaGamepad } from 'react-icons/fa';
@@ -34,7 +34,7 @@ const Login = () => {
     <div className="min-h-screen flex items-center justify-center bg-dark-100 p-4">
       <div className="bg-dark-200 rounded-2xl p-8 max-w-md w-full border border-gold-500/20 shadow-2xl">
         <div className="text-center mb-8">
-          <div className="text-4xl mb-2">🎮</div>
+          <div className="text-4xl mb-2">??</div>
           <h1 className="text-3xl font-bold">
             <span className="text-white">MIKA</span>
             <span className="text-gold-500">-BET</span>

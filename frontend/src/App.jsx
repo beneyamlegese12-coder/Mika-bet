@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from "./context/AuthContext";
@@ -80,8 +80,8 @@ function App() {
                   border: '1px solid #ffd700',
                   borderRadius: '12px',
                 },
-                success: { icon: '✅', style: { border: '1px solid #22c55e' } },
-                error: { icon: '❌', style: { border: '1px solid #ef4444' } },
+                success: { icon: '?', style: { border: '1px solid #22c55e' } },
+                error: { icon: '?', style: { border: '1px solid #ef4444' } },
               }}
             />
             

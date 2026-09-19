@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useBetContext } from '../context/BetContext';
 import { useSocket } from '../context/SocketContext';
@@ -24,7 +24,7 @@ const Home = () => {
   // Socket listeners for live updates
   useEffect(() => {
     const unsubscribeMatch = onMatchUpdate((data) => {
-      console.log('🔄 Match updated:', data);
+      console.log('?? Match updated:', data);
       setMatches(prevMatches => 
         prevMatches.map(match => 
           match._id === data.matchId 
@@ -35,7 +35,7 @@ const Home = () => {
     });
 
     const unsubscribeBet = onBetPlaced((data) => {
-      console.log('🎯 Bet placed:', data);
+      console.log('?? Bet placed:', data);
       fetchStats();
     });
 
@@ -84,7 +84,7 @@ const Home = () => {
           <div className="flex items-center gap-2 text-sm">
             <FaCircle className={isConnected ? 'text-green-500' : 'text-red-500'} size={10} />
             <span className={isConnected ? 'text-green-500' : 'text-red-500'}>
-              {isConnected ? '🟢 Live Updates Connected' : '🔴 Disconnected'}
+              {isConnected ? '?? Live Updates Connected' : '?? Disconnected'}
             </span>
           </div>
           <button
@@ -99,7 +99,7 @@ const Home = () => {
         {/* Welcome Section */}
         <div className="bg-gradient-to-r from-gold-500/10 to-dark-200 rounded-2xl p-6 mb-8 border border-gold-500/20">
           <h1 className="text-2xl font-bold text-white">
-            Welcome back, {user?.firstName || user?.username}! 🎉
+            Welcome back, {user?.firstName || user?.username}! ??
           </h1>
           <p className="text-gray-400 mt-1">Ready to place your bets?</p>
           
@@ -144,7 +144,7 @@ const Home = () => {
                   : 'bg-dark-200 text-gray-400 hover:text-white hover:bg-dark-300'
               }`}
             >
-              🔴 Live ({liveMatches.length})
+              ?? Live ({liveMatches.length})
             </button>
             <button
               onClick={() => setFilter('upcoming')}
@@ -154,7 +154,7 @@ const Home = () => {
                   : 'bg-dark-200 text-gray-400 hover:text-white hover:bg-dark-300'
               }`}
             >
-              📅 Upcoming ({upcomingMatches.length})
+              ?? Upcoming ({upcomingMatches.length})
             </button>
           </div>
         </div>

@@ -1,4 +1,4 @@
-﻿import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 
@@ -43,7 +43,7 @@ export const AuthProvider = ({ children }) => {
   const login = async (identifier, password) => {
     try {
       const response = await api.post('/auth/login', { identifier, password });
-      console.log('📋 Login Response:', response.data);
+      console.log('?? Login Response:', response.data);
       
       const { token, refreshToken, user } = response.data.data;
       
